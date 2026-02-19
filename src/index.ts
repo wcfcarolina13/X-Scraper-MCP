@@ -42,10 +42,77 @@ interface FxTweetPollChoice {
   percentage: number;
 }
 
+interface FxTweetRawText {
+  text: string;
+  facets?: Array<{
+    type: string;
+    indices: [number, number];
+    original: string;
+    replacement: string;
+    display: string;
+  }>;
+}
+
+interface FxArticleBlock {
+  key: string;
+  text: string;
+  type: string; // "unstyled" | "header-one" | "header-two" | "header-three" | "atomic" | "ordered-list-item" | "unordered-list-item" | "blockquote"
+  inlineStyleRanges: Array<{ offset: number; length: number; style: string }>;
+  entityRanges: Array<{ key: number; offset: number; length: number }>;
+  data: Record<string, unknown>;
+}
+
+interface FxArticleEntityMedia {
+  localMediaId: string;
+  mediaCategory: string;
+  mediaId: string;
+}
+
+interface FxArticleEntity {
+  key: string;
+  value: {
+    type: string; // "MEDIA" | "LINK"
+    mutability: string;
+    data: {
+      url?: string;
+      mediaItems?: FxArticleEntityMedia[];
+      entityKey?: string;
+    };
+  };
+}
+
+interface FxArticle {
+  id: string;
+  title: string;
+  preview_text: string;
+  created_at: string;
+  modified_at: string;
+  cover_media?: {
+    media_info?: {
+      original_img_url?: string;
+      original_img_width?: number;
+      original_img_height?: number;
+    };
+  };
+  content?: {
+    blocks: FxArticleBlock[];
+    entityMap: FxArticleEntity[];
+  };
+  media_entities?: Array<{
+    media_id: string;
+    media_info?: {
+      original_img_url?: string;
+      original_img_width?: number;
+      original_img_height?: number;
+    };
+  }>;
+}
+
 interface FxTweet {
   id: string;
   url: string;
   text: string;
+  raw_text?: FxTweetRawText;
   author: FxTweetAuthor;
   replies: number;
   retweets: number;
@@ -63,6 +130,7 @@ interface FxTweet {
   poll?: { choices: FxTweetPollChoice[]; total_votes: number; ends_at: string };
   is_note_tweet?: boolean;
   community_note?: { text: string } | null;
+  article?: FxArticle | null;
 }
 
 interface FxTweetResponse {
@@ -206,8 +274,159 @@ function formatNumber(n: number | null | undefined): string {
   return n.toString();
 }
 
+/**
+ * Convert Draft.js article blocks into clean markdown.
+ */
+function formatArticle(article: FxArticle): string {
+  const parts: string[] = [];
+
+  parts.push(`# ${article.title}`);
+  parts.push("");
+
+  if (article.cover_media?.media_info?.original_img_url) {
+    parts.push(`![Cover](${article.cover_media.media_info.original_img_url})`);
+    parts.push("");
+  }
+
+  if (!article.content?.blocks) {
+    // Fallback to preview_text if no blocks
+    if (article.preview_text) {
+      parts.push(article.preview_text);
+    }
+    return parts.join("\n");
+  }
+
+  // Build a media ID → URL lookup from media_entities
+  const mediaUrlMap = new Map<string, string>();
+  if (article.media_entities) {
+    for (const me of article.media_entities) {
+      if (me.media_info?.original_img_url) {
+        mediaUrlMap.set(me.media_id, me.media_info.original_img_url);
+      }
+    }
+  }
+
+  // Build entity key → entity lookup
+  const entityMap = new Map<string, FxArticleEntity["value"]>();
+  if (article.content.entityMap) {
+    for (const ent of article.content.entityMap) {
+      entityMap.set(ent.key, ent.value);
+    }
+  }
+
+  for (const block of article.content.blocks) {
+    let text = block.text;
+
+    // Apply inline styles (bold, italic)
+    if (block.inlineStyleRanges.length > 0 && text.trim()) {
+      // Sort ranges by offset descending so we can insert markers without shifting indices
+      const sortedRanges = [...block.inlineStyleRanges].sort((a, b) => b.offset - a.offset);
+      const chars = [...text];
+      for (const range of sortedRanges) {
+        const start = range.offset;
+        const end = range.offset + range.length;
+        if (range.style === "Bold" || range.style === "BOLD") {
+          chars.splice(end, 0, "**");
+          chars.splice(start, 0, "**");
+        } else if (range.style === "Italic" || range.style === "ITALIC") {
+          chars.splice(end, 0, "*");
+          chars.splice(start, 0, "*");
+        }
+      }
+      text = chars.join("");
+    }
+
+    switch (block.type) {
+      case "header-one":
+        parts.push(`## ${text}`);
+        parts.push("");
+        break;
+      case "header-two":
+        parts.push(`### ${text}`);
+        parts.push("");
+        break;
+      case "header-three":
+        parts.push(`#### ${text}`);
+        parts.push("");
+        break;
+      case "blockquote":
+        parts.push(`> ${text}`);
+        parts.push("");
+        break;
+      case "ordered-list-item":
+        parts.push(`1. ${text}`);
+        break;
+      case "unordered-list-item":
+        parts.push(`- ${text}`);
+        break;
+      case "atomic":
+        // Atomic blocks contain media references via entityRanges
+        for (const er of block.entityRanges) {
+          const entity = entityMap.get(String(er.key));
+          if (entity?.type === "MEDIA" && entity.data.mediaItems) {
+            for (const mi of entity.data.mediaItems) {
+              const imgUrl = mediaUrlMap.get(mi.mediaId);
+              if (imgUrl) {
+                parts.push(`![Image](${imgUrl})`);
+                parts.push("");
+              }
+            }
+          } else if (entity?.type === "LINK" && entity.data.url) {
+            parts.push(`[Link](${entity.data.url})`);
+            parts.push("");
+          }
+        }
+        break;
+      default:
+        // "unstyled" — regular paragraph
+        if (text.trim()) {
+          parts.push(text);
+          parts.push("");
+        }
+        break;
+    }
+  }
+
+  return parts.join("\n");
+}
+
+/**
+ * Extract embedded URLs from raw_text facets.
+ */
+function extractUrls(tweet: FxTweet): Array<{ display: string; url: string }> {
+  const urls: Array<{ display: string; url: string }> = [];
+  if (tweet.raw_text?.facets) {
+    for (const facet of tweet.raw_text.facets) {
+      if (facet.type === "url" && facet.replacement) {
+        urls.push({ display: facet.display, url: facet.replacement });
+      }
+    }
+  }
+  return urls;
+}
+
 function formatTweet(tweet: FxTweet, index?: number): string {
   const parts: string[] = [];
+
+  // If this is an article tweet, format the article
+  if (tweet.article?.content) {
+    parts.push(`### Article by @${tweet.author.screen_name} (${tweet.author.name})`);
+    parts.push("");
+    parts.push(formatArticle(tweet.article));
+    parts.push("");
+
+    // Engagement
+    const stats = [
+      `${formatNumber(tweet.likes)} likes`,
+      `${formatNumber(tweet.retweets)} retweets`,
+      `${formatNumber(tweet.replies)} replies`,
+      `${formatNumber(tweet.views)} views`,
+    ].join(" · ");
+    parts.push(`*${stats}*`);
+    parts.push(`*${tweet.created_at}*`);
+    parts.push(`*URL: ${tweet.url}*`);
+    return parts.join("\n");
+  }
 
   // Header
   const prefix = index != null ? `### Tweet ${index + 1}` : `### Tweet`;
@@ -217,6 +436,17 @@ function formatTweet(tweet: FxTweet, index?: number): string {
   // Text
   parts.push(tweet.text);
   parts.push("");
+
+  // Embedded URLs (from raw_text facets, only if not already visible in text)
+  const urls = extractUrls(tweet);
+  const visibleUrls = urls.filter(u => !tweet.text.includes(u.url));
+  if (visibleUrls.length > 0) {
+    parts.push("**Links:**");
+    for (const u of visibleUrls) {
+      parts.push(`  - [${u.display}](${u.url})`);
+    }
+    parts.push("");
+  }
 
   // Poll
   if (tweet.poll) {
