@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment / Secrets
+.env
+.env.*
+
+# Logs
+*.log
+npm-debug.log*
+
+# TypeScript incremental compilation
+*.tsbuildinfo

@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "fxtwitter": {
+      "command": "npx",
+      "args": ["tsx", "/Users/roti/gemini_projects/fxtwitter-mcp/src/index.ts"]
+    },
+    "scrapebadger": {
+      "command": "uvx",
+      "args": ["scrapebadger-mcp"],
+      "env": {
+        "SCRAPEBADGER_API_KEY": "YOUR_API_KEY_HERE"
+      },
+      "disabled": true
+    }
+  }
+}
