@@ -3,6 +3,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join, extname } from "node:path";
 
 const API_BASE = "https://api.fxtwitter.com";
 
@@ -776,6 +778,183 @@ server.tool(
     } catch (err) {
       return {
         content: [{ type: "text" as const, text: `Error fetching user: ${err}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ── download_media ────────────────────────────────────────────────────────
+
+server.tool(
+  "download_media",
+  `Download media (images/videos) from a tweet to the local filesystem.
+
+Returns an array of downloaded files with local paths, dimensions, and sizes.
+Useful for archiving tweet media or feeding images into vision/OCR tools.
+
+Naming convention: {tweet_id}_{index}.{ext}
+Example: 1234567890_0.jpg, 1234567890_1.mp4`,
+  {
+    url: z.string().describe("X/Twitter URL or tweet ID"),
+    output_dir: z.string().describe("Directory to save media files (will be created if it doesn't exist)"),
+    media_type: z
+      .enum(["images", "videos", "all"])
+      .optional()
+      .default("all")
+      .describe("Which media types to download (default: all)"),
+  },
+  async ({ url, output_dir, media_type }) => {
+    const parsed = parseTweetUrl(url);
+    if (!parsed) {
+      return {
+        content: [{ type: "text" as const, text: `Could not parse tweet URL or ID: ${url}` }],
+        isError: true,
+      };
+    }
+
+    try {
+      const data = await fetchTweet(parsed.username, parsed.tweetId);
+      if (data.code !== 200 || !data.tweet) {
+        return {
+          content: [{ type: "text" as const, text: `FxTwitter API error: ${data.message} (code ${data.code})` }],
+          isError: true,
+        };
+      }
+
+      const tweet = data.tweet;
+      if (!tweet.media) {
+        return {
+          content: [{ type: "text" as const, text: `No media found in tweet ${tweet.id}` }],
+        };
+      }
+
+      // Ensure output directory exists
+      await mkdir(output_dir, { recursive: true });
+
+      interface MediaItem {
+        type: "photo" | "video";
+        sourceUrl: string;
+        width: number;
+        height: number;
+        thumbnailUrl?: string;
+      }
+
+      const items: MediaItem[] = [];
+
+      if (media_type !== "videos" && tweet.media.photos?.length) {
+        for (const photo of tweet.media.photos) {
+          items.push({
+            type: "photo",
+            sourceUrl: photo.url,
+            width: photo.width,
+            height: photo.height,
+          });
+        }
+      }
+
+      if (media_type !== "images" && tweet.media.videos?.length) {
+        for (const video of tweet.media.videos) {
+          items.push({
+            type: "video",
+            sourceUrl: video.url,
+            width: video.width,
+            height: video.height,
+            thumbnailUrl: video.thumbnail_url,
+          });
+        }
+      }
+
+      if (items.length === 0) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `No ${media_type === "all" ? "" : media_type + " "}media found in tweet ${tweet.id}`,
+          }],
+        };
+      }
+
+      const results: Array<{
+        path: string;
+        type: string;
+        width: number;
+        height: number;
+        size: number;
+        sourceUrl: string;
+      }> = [];
+      const errors: string[] = [];
+
+      for (let idx = 0; idx < items.length; idx++) {
+        const item = items[idx];
+        try {
+          const res = await fetch(item.sourceUrl);
+          if (!res.ok) {
+            errors.push(`Failed to download ${item.sourceUrl}: HTTP ${res.status}`);
+            continue;
+          }
+
+          const buffer = Buffer.from(await res.arrayBuffer());
+
+          // Determine extension from URL or content-type
+          let ext = extname(new URL(item.sourceUrl).pathname).split("?")[0];
+          if (!ext) {
+            const ct = res.headers.get("content-type") || "";
+            if (ct.includes("jpeg") || ct.includes("jpg")) ext = ".jpg";
+            else if (ct.includes("png")) ext = ".png";
+            else if (ct.includes("gif")) ext = ".gif";
+            else if (ct.includes("webp")) ext = ".webp";
+            else if (ct.includes("mp4")) ext = ".mp4";
+            else ext = item.type === "photo" ? ".jpg" : ".mp4";
+          }
+
+          const filename = `${tweet.id}_${idx}${ext}`;
+          const filepath = join(output_dir, filename);
+          await writeFile(filepath, buffer);
+
+          results.push({
+            path: filepath,
+            type: item.type,
+            width: item.width,
+            height: item.height,
+            size: buffer.length,
+            sourceUrl: item.sourceUrl,
+          });
+        } catch (err) {
+          errors.push(`Error downloading ${item.sourceUrl}: ${err}`);
+        }
+      }
+
+      // Format output
+      const lines: string[] = [];
+      lines.push(`## Media Downloaded from Tweet ${tweet.id}`);
+      lines.push(`**Author:** @${tweet.author.screen_name}`);
+      lines.push("");
+
+      if (results.length > 0) {
+        lines.push(`**${results.length} file(s) saved to** \`${output_dir}\`\n`);
+        for (const r of results) {
+          const sizeStr = r.size >= 1_000_000
+            ? `${(r.size / 1_000_000).toFixed(1)}MB`
+            : `${(r.size / 1_000).toFixed(0)}KB`;
+          lines.push(`- **${r.path}**`);
+          lines.push(`  ${r.type} · ${r.width}×${r.height} · ${sizeStr}`);
+        }
+      }
+
+      if (errors.length > 0) {
+        lines.push("");
+        lines.push(`**Errors (${errors.length}):**`);
+        for (const e of errors) {
+          lines.push(`- ${e}`);
+        }
+      }
+
+      return {
+        content: [{ type: "text" as const, text: lines.join("\n") }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text" as const, text: `Error downloading media: ${err}` }],
         isError: true,
       };
     }

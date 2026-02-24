@@ -13,6 +13,7 @@ Built as a replacement for services like [Unrollnow](https://unrollnow.com/) —
 | `read_tweet` | Fetch a single tweet. Returns text, media, polls, quotes, engagement stats, community notes. |
 | `read_thread` | Unroll a full thread into readable markdown. Walks up to the root and discovers children via syndication. Supports multi-URL input. |
 | `read_user` | Fetch a user profile — bio, follower counts, join date, verification status. |
+| `download_media` | Download images/videos from a tweet to local filesystem. Returns file paths, dimensions, and sizes. |
 
 ### URL Formats
 
@@ -83,6 +84,9 @@ Once configured, the tools are available in any Claude conversation:
 
 **Read a profile:**
 > "Who is @elonmusk on X?"
+
+**Download media from a tweet:**
+> "Download the images from this tweet to /tmp/media: https://x.com/user/status/123"
 
 ### Thread Unrolling
 
