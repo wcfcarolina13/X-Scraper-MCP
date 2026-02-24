@@ -3,8 +3,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { join, extname } from "node:path";
+import Tesseract from "tesseract.js";
 
 const API_BASE = "https://api.fxtwitter.com";
 
@@ -955,6 +956,112 @@ Example: 1234567890_0.jpg, 1234567890_1.mp4`,
     } catch (err) {
       return {
         content: [{ type: "text" as const, text: `Error downloading media: ${err}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ── analyze_media ─────────────────────────────────────────────────────────
+
+server.tool(
+  "analyze_media",
+  `Extract text from an image using OCR (Tesseract.js).
+
+Accepts a local file path (from download_media) or an image URL.
+Returns extracted text content. Best for text-heavy images like
+paper screenshots, code snippets, diagrams with labels, and charts.
+
+For URLs, the image is fetched and processed in memory without saving to disk.`,
+  {
+    image: z
+      .string()
+      .describe(
+        "Local file path to an image (from download_media), or an image URL (https://...)"
+      ),
+    lang: z
+      .string()
+      .optional()
+      .default("eng")
+      .describe(
+        "Tesseract language code (default: eng). Examples: eng, fra, deu, spa, chi_sim, jpn"
+      ),
+  },
+  async ({ image, lang }) => {
+    try {
+      let imageInput: string | Buffer;
+
+      if (image.startsWith("http://") || image.startsWith("https://")) {
+        // Fetch image from URL
+        const res = await fetch(image);
+        if (!res.ok) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Failed to fetch image: HTTP ${res.status} ${res.statusText}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+        imageInput = Buffer.from(await res.arrayBuffer());
+      } else {
+        // Read local file
+        try {
+          imageInput = await readFile(image);
+        } catch (err) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Could not read file: ${image}\n${err}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+
+      const {
+        data: { text, confidence },
+      } = await Tesseract.recognize(imageInput, lang);
+
+      const trimmedText = text.trim();
+
+      if (!trimmedText) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `## OCR Result\n\n**Source:** \`${image}\`\n**Language:** ${lang}\n**Confidence:** ${confidence?.toFixed(1) ?? "N/A"}%\n\nNo text detected in this image.`,
+            },
+          ],
+        };
+      }
+
+      const lines: string[] = [];
+      lines.push(`## OCR Result`);
+      lines.push("");
+      lines.push(`**Source:** \`${image}\``);
+      lines.push(`**Language:** ${lang}`);
+      lines.push(`**Confidence:** ${confidence?.toFixed(1) ?? "N/A"}%`);
+      lines.push(`**Characters:** ${trimmedText.length}`);
+      lines.push("");
+      lines.push("### Extracted Text");
+      lines.push("");
+      lines.push("```");
+      lines.push(trimmedText);
+      lines.push("```");
+
+      return {
+        content: [{ type: "text" as const, text: lines.join("\n") }],
+      };
+    } catch (err) {
+      return {
+        content: [
+          { type: "text" as const, text: `Error analyzing media: ${err}` },
+        ],
         isError: true,
       };
     }
