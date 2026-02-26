@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "fxtwitter-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "wcfcarolina13/X-Scraper-MCP"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "fxtwitter@fxtwitter-marketplace": true
+  }
+}

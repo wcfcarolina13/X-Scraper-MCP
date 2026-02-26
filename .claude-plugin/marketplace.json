@@ -1,0 +1,19 @@
+{
+  "name": "fxtwitter-marketplace",
+  "owner": {
+    "name": "wcfcarolina13"
+  },
+  "metadata": {
+    "description": "X/Twitter tools for Claude Cowork and Claude Code"
+  },
+  "plugins": [
+    {
+      "name": "fxtwitter",
+      "source": "./",
+      "description": "Read X/Twitter posts, unroll threads, fetch user profiles, download media, and OCR images.",
+      "version": "1.0.0",
+      "category": "social-media",
+      "tags": ["twitter", "x", "social-media", "threads", "ocr"]
+    }
+  ]
+}
