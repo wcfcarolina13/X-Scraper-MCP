@@ -1,7 +1,7 @@
 {
   "name": "fxtwitter",
   "description": "Read X/Twitter posts, unroll threads, fetch user profiles, download media, and extract text from images via OCR.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": {
     "name": "wcfcarolina13"
   },

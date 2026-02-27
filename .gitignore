@@ -1,8 +1,9 @@
 # Dependencies
 node_modules/
 
-# Build output
+# Build output (keep dist/index.cjs for plugin distribution)
 dist/
+!dist/index.cjs
 
 # OS files
 .DS_Store
