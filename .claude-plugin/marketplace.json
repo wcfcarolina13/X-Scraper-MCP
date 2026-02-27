@@ -11,7 +11,7 @@
       "name": "fxtwitter",
       "source": "./",
       "description": "Read X/Twitter posts, unroll threads, fetch user profiles, download media, and OCR images.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "category": "social-media",
       "tags": ["twitter", "x", "social-media", "threads", "ocr"]
     }
