@@ -159,11 +159,35 @@ For richer Twitter data (search, trending, advanced thread traversal), you can a
 
 Get a free API key (1,000 credits) at [scrapebadger.com](https://scrapebadger.com).
 
+## Optional: Xquik Remote MCP
+
+For authenticated X search, profile lookup, timelines, trends, monitors, and webhooks, you can add [Xquik](https://xquik.com) alongside this server:
+
+```json
+{
+  "mcpServers": {
+    "fxtwitter": {
+      "command": "npx",
+      "args": ["tsx", "/path/to/X-Scraper-MCP/src/index.ts"]
+    },
+    "xquik": {
+      "type": "http",
+      "url": "https://xquik.com/mcp",
+      "headers": {
+        "x-api-key": "xq_YOUR_KEY_HERE"
+      }
+    }
+  }
+}
+```
+
+See the [Xquik MCP setup guide](https://docs.xquik.com/mcp/overview). The endpoint requires an API key.
+
 ## Limitations
 
 - **Protected accounts** — Cannot access tweets from private/protected accounts (same as any logged-out view).
 - **Thread discovery** — Syndication timeline only contains recent tweets. For old threads, provide the last tweet URL or multiple URLs.
-- **No search** — FxTwitter API doesn't support tweet search. Use ScrapeBadger for that.
+- **No search** - FxTwitter API doesn't support tweet search. Use ScrapeBadger or Xquik for that.
 - **Rate limits** — FxTwitter asks for respectful usage. No hard limits, but hammering the API may get you blocked.
 
 ## License
